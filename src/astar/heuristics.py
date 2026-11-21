@@ -2,9 +2,9 @@
 
 所有启发函数都使用统一签名::
 
-    h(a: tuple[float, ...], b: tuple[float, ...]) -> float
+    heuristic(current: tuple[float, ...], goal: tuple[float, ...]) -> float
 
-其中 ``a`` 为当前节点坐标，``b`` 为目标节点坐标。对二维矩阵来说坐标是
+其中 ``current`` 为当前节点坐标，``goal`` 为目标节点坐标。对二维矩阵来说坐标是
 ``(row, col)``；对顶点/边图来说坐标是顶点的 ``(x, y)`` 位置。因此同一个启发
 函数可以同时用于两种数据结构。
 
@@ -44,52 +44,52 @@ def register_heuristic(name: str, description: str = "") -> Callable[[Heuristic]
     """装饰器：把函数注册为具名启发函数，之后可通过字符串名称使用。
 
     >>> @register_heuristic("half_manhattan", "曼哈顿距离的一半")
-    ... def half(a, b):
-    ...     return (abs(a[0] - b[0]) + abs(a[1] - b[1])) / 2
+    ... def half(current, goal):
+    ...     return (abs(current[0] - goal[0]) + abs(current[1] - goal[1])) / 2
     """
 
-    def deco(func: Heuristic) -> Heuristic:
-        _REGISTRY[name] = func
-        _DESCRIPTIONS[name] = description or (func.__doc__ or "").strip().split("\n")[0]
-        return func
+    def decorator(heuristic: Heuristic) -> Heuristic:
+        _REGISTRY[name] = heuristic
+        _DESCRIPTIONS[name] = description or (heuristic.__doc__ or "").strip().split("\n")[0]
+        return heuristic
 
-    return deco
+    return decorator
 
 
 @register_heuristic("zero", "h = 0，A* 退化为 Dijkstra")
-def zero(a: Point, b: Point) -> float:
+def zero(current: Point, goal: Point) -> float:
     return 0.0
 
 
 @register_heuristic("manhattan", "|dx| + |dy|，4 邻接网格的精确下界")
-def manhattan(a: Point, b: Point) -> float:
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+def manhattan(current: Point, goal: Point) -> float:
+    return abs(current[0] - goal[0]) + abs(current[1] - goal[1])
 
 
 @register_heuristic("euclidean", "直线距离，任意方向下都可采纳")
-def euclidean(a: Point, b: Point) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
+def euclidean(current: Point, goal: Point) -> float:
+    return math.hypot(current[0] - goal[0], current[1] - goal[1])
 
 
 @register_heuristic("chebyshev", "max(|dx|, |dy|)，对角代价为 1 时的下界")
-def chebyshev(a: Point, b: Point) -> float:
-    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+def chebyshev(current: Point, goal: Point) -> float:
+    return max(abs(current[0] - goal[0]), abs(current[1] - goal[1]))
 
 
 @register_heuristic("octile", "max + (√2-1)·min，对角代价为 √2 时的精确下界")
-def octile(a: Point, b: Point) -> float:
-    dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
-    return max(dx, dy) + (math.sqrt(2) - 1) * min(dx, dy)
+def octile(current: Point, goal: Point) -> float:
+    delta_0, delta_1 = abs(current[0] - goal[0]), abs(current[1] - goal[1])
+    return max(delta_0, delta_1) + (math.sqrt(2) - 1) * min(delta_0, delta_1)
 
 
-def weighted(h: Heuristic, w: float) -> Heuristic:
-    """返回 ``w * h``。w > 1 即 Weighted A*：扩展更少但不保证最优（代价 ≤ w·最优）。"""
+def weighted(base_heuristic: Heuristic, weight: float) -> Heuristic:
+    """返回 ``weight * base_heuristic``。weight > 1 即 Weighted A*：扩展更少但不保证最优（代价 ≤ weight·最优）。"""
 
-    def _h(a: Point, b: Point) -> float:
-        return w * h(a, b)
+    def weighted_heuristic(current: Point, goal: Point) -> float:
+        return weight * base_heuristic(current, goal)
 
-    _h.__name__ = f"{getattr(h, '__name__', 'h')}x{w:g}"
-    return _h
+    weighted_heuristic.__name__ = f"{getattr(base_heuristic, '__name__', 'heuristic')}x{weight:g}"
+    return weighted_heuristic
 
 
 def available_heuristics() -> dict[str, str]:
@@ -101,31 +101,31 @@ def get_heuristic(spec: str | Heuristic) -> Heuristic:
     """把名称 / ``module:function`` / 可调用对象 解析为启发函数。
 
     - ``"manhattan"``：内置或已注册名称；
-    - ``"manhattan*2"``：名称后加 ``*w`` 表示加权；
+    - ``"manhattan*2"``：名称后加 ``*权重`` 表示加权；
     - ``"my_pkg.my_mod:my_func"``：从模块动态导入（自定义启发函数）。
     """
     if callable(spec):
         return spec
     weight = 1.0
     if "*" in spec:
-        spec, w = spec.rsplit("*", 1)
-        weight = float(w)
+        spec, weight_text = spec.rsplit("*", 1)
+        weight = float(weight_text)
     if spec in _REGISTRY:
-        h = _REGISTRY[spec]
+        heuristic = _REGISTRY[spec]
     elif ":" in spec:
-        mod_name, func_name = spec.split(":", 1)
-        h = getattr(importlib.import_module(mod_name), func_name)
-        if not callable(h):
+        module_name, function_name = spec.split(":", 1)
+        heuristic = getattr(importlib.import_module(module_name), function_name)
+        if not callable(heuristic):
             raise TypeError(f"{spec} 不是可调用对象")
     else:
         raise KeyError(f"未知启发函数 {spec!r}，可选：{', '.join(_REGISTRY)}，或使用 module:function")
-    return weighted(h, weight) if weight != 1.0 else h
+    return weighted(heuristic, weight) if weight != 1.0 else heuristic
 
 
-def heuristic_name(h: Heuristic | str) -> str:
-    if isinstance(h, str):
-        return h
-    for name, func in _REGISTRY.items():
-        if func is h:
+def heuristic_name(heuristic: Heuristic | str) -> str:
+    if isinstance(heuristic, str):
+        return heuristic
+    for name, registered in _REGISTRY.items():
+        if registered is heuristic:
             return name
-    return getattr(h, "__name__", "custom")
+    return getattr(heuristic, "__name__", "custom")

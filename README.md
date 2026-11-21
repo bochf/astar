@@ -53,7 +53,7 @@ uv run astar graph --map road --nodes 1500 -H zero -H euclidean --animate --out 
 
 ## 启发函数
 
-所有启发函数签名都是 `h(a, b) -> float`，`a`、`b` 是坐标元组，矩阵和图共用。
+所有启发函数签名都是 `heuristic(current, goal) -> float`，`current`、`goal` 是坐标元组，矩阵和图共用。
 
 | 名称 | 公式 | 何时可采纳（保证最优） |
 |---|---|---|
@@ -72,11 +72,11 @@ uv run astar graph --map road --nodes 1500 -H zero -H euclidean --animate --out 
 from astar import astar_grid, register_heuristic, maps
 
 # 方式 1：直接传可调用对象
-astar_grid(grid, heuristic=lambda a, b: max(abs(a[0]-b[0]), abs(a[1]-b[1])))
+astar_grid(grid, heuristic=lambda current, goal: max(abs(current[0]-goal[0]), abs(current[1]-goal[1])))
 
 # 方式 2：注册成名称，之后可以用字符串（包括命令行 -H）引用
 @register_heuristic("my_h", "说明文字")
-def my_h(a, b): ...
+def my_h(current, goal): ...
 ```
 
 命令行中用 `--plugin path/to/file.py`（文件里用 `@register_heuristic` 注册）或 `-H module:function` 引用自定义函数。
@@ -91,7 +91,7 @@ PYTHONPATH=examples uv run astar grid --map maze -H zero -H custom_heuristic:man
 
 ## 实现要点
 
-- 开放列表用二叉堆，条目为 `(f, h, 序号, g, 节点)`。f 相同时优先扩展 h 更小的节点，这在开阔区域能大幅减少扩展数。
+- 开放列表用二叉堆，条目为 `(f, h, 插入序号, g, 节点)`。f 相同时优先扩展 h 更小的节点，这在开阔区域能大幅减少扩展数。
 - 采用惰性删除：节点的 g 值被改进后直接压入新条目，弹出时如果条目里的 g 大于当前最优 g 就跳过。
 - 8 邻接时禁止切角：两个正交相邻格中有一个是墙，就不能斜穿过去。
 - `SearchResult` 记录 `path`、`cost`、扩展顺序 `expanded`、发现顺序 `discovered` 和耗时，可视化用的就是这些数据。

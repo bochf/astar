@@ -21,75 +21,76 @@ Vertex = Hashable
 class Graph:
     """邻接表图。
 
-    >>> g = Graph()
-    >>> g.add_vertex("A", (0, 0)); g.add_vertex("B", (3, 4))
-    >>> g.add_edge("A", "B")          # 权重缺省为两点欧氏距离 = 5
-    >>> astar_graph(g, "A", "B").cost
+    >>> graph = Graph()
+    >>> graph.add_vertex("A", (0, 0)); graph.add_vertex("B", (3, 4))
+    >>> graph.add_edge("A", "B")          # 权重缺省为两点欧氏距离 = 5
+    >>> astar_graph(graph, "A", "B").cost
     5.0
     """
 
     def __init__(self, directed: bool = False, name: str = "graph"):
         self.directed = directed
         self.name = name
-        self.pos: dict[Vertex, tuple[float, float]] = {}
-        self.adj: dict[Vertex, dict[Vertex, float]] = {}
+        self.positions: dict[Vertex, tuple[float, float]] = {}
+        self.adjacency: dict[Vertex, dict[Vertex, float]] = {}   # {顶点: {邻居: 边权}}
         self.start: Vertex | None = None
         self.goal: Vertex | None = None
 
     # ------------------------------------------------------------------ 构造
-    def add_vertex(self, v: Vertex, pos: tuple[float, float]) -> None:
-        self.pos[v] = (float(pos[0]), float(pos[1]))
-        self.adj.setdefault(v, {})
+    def add_vertex(self, vertex: Vertex, position: tuple[float, float]) -> None:
+        self.positions[vertex] = (float(position[0]), float(position[1]))
+        self.adjacency.setdefault(vertex, {})
 
-    def add_edge(self, u: Vertex, v: Vertex, weight: float | None = None) -> None:
+    def add_edge(self, source: Vertex, target: Vertex, weight: float | None = None) -> None:
         """添加边；``weight`` 缺省时取两端点的欧氏距离。"""
-        if u not in self.pos or v not in self.pos:
+        if source not in self.positions or target not in self.positions:
             raise KeyError("请先 add_vertex 再 add_edge")
         if weight is None:
-            weight = self.distance(u, v)
+            weight = self.distance(source, target)
         if weight < 0:
             raise ValueError("A*/Dijkstra 要求边权非负")
-        self.adj[u][v] = float(weight)
+        self.adjacency[source][target] = float(weight)
         if not self.directed:
-            self.adj[v][u] = float(weight)
+            self.adjacency[target][source] = float(weight)
 
     @classmethod
     def from_edges(cls, positions: dict[Vertex, tuple[float, float]],
                    edges: Iterable[tuple[Vertex, Vertex] | tuple[Vertex, Vertex, float]],
                    directed: bool = False, name: str = "graph") -> "Graph":
-        g = cls(directed=directed, name=name)
-        for v, p in positions.items():
-            g.add_vertex(v, p)
-        for e in edges:
-            g.add_edge(*e)
-        return g
+        graph = cls(directed=directed, name=name)
+        for vertex, position in positions.items():
+            graph.add_vertex(vertex, position)
+        for edge in edges:
+            graph.add_edge(*edge)
+        return graph
 
     # ------------------------------------------------------------------ 查询
-    def distance(self, u: Vertex, v: Vertex) -> float:
-        (x1, y1), (x2, y2) = self.pos[u], self.pos[v]
-        return math.hypot(x1 - x2, y1 - y2)
+    def distance(self, first: Vertex, second: Vertex) -> float:
+        (first_x, first_y), (second_x, second_y) = self.positions[first], self.positions[second]
+        return math.hypot(first_x - second_x, first_y - second_y)
 
-    def neighbors(self, v: Vertex) -> Iterator[tuple[Vertex, float]]:
-        yield from self.adj[v].items()
+    def neighbors(self, vertex: Vertex) -> Iterator[tuple[Vertex, float]]:
+        yield from self.adjacency[vertex].items()
 
     def edges(self) -> Iterator[tuple[Vertex, Vertex, float]]:
-        seen = set()
-        for u, nbs in self.adj.items():
-            for v, w in nbs.items():
-                key = (u, v) if self.directed else frozenset((u, v))
-                if key not in seen:
-                    seen.add(key)
-                    yield u, v, w
+        """遍历所有边 (source, target, weight)；无向图每条边只出现一次。"""
+        seen_edges = set()
+        for source, neighbors in self.adjacency.items():
+            for target, weight in neighbors.items():
+                edge_key = (source, target) if self.directed else frozenset((source, target))
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    yield source, target, weight
 
     def __len__(self) -> int:
-        return len(self.pos)
+        return len(self.positions)
 
     @property
-    def n_edges(self) -> int:
+    def edge_count(self) -> int:
         return sum(1 for _ in self.edges())
 
     def path_cost(self, path: list[Vertex]) -> float:
-        return sum(self.adj[a][b] for a, b in itertools.pairwise(path))
+        return sum(self.adjacency[current][following] for current, following in itertools.pairwise(path))
 
 
 def astar_graph(graph: Graph, start: Vertex | None = None, goal: Vertex | None = None,
@@ -101,51 +102,55 @@ def astar_graph(graph: Graph, start: Vertex | None = None, goal: Vertex | None =
     """
     start = start if start is not None else graph.start
     goal = goal if goal is not None else graph.goal
-    if start not in graph.pos or goal not in graph.pos:
+    if start not in graph.positions or goal not in graph.positions:
         raise KeyError("起点或终点不在图中")
 
-    h_func = get_heuristic(heuristic)
-    hname = heuristic_name(heuristic)
-    goal_pos = graph.pos[goal]
-    pos = graph.pos
+    heuristic_fn = get_heuristic(heuristic)
+    heuristic_label = heuristic_name(heuristic)
+    positions = graph.positions
+    goal_position = positions[goal]
 
-    t0 = time.perf_counter()
-    counter = itertools.count()
-    g: dict[Vertex, float] = {start: 0.0}
-    parent: dict[Vertex, Vertex] = {}
-    h0 = h_func(pos[start], goal_pos)
-    open_heap = [(h0, h0, next(counter), 0.0, start)]
+    start_time = time.perf_counter()
+    insertion_order = itertools.count()               # 堆中平局时先进先出，且避免比较顶点本身
+    cost_from_start: dict[Vertex, float] = {start: 0.0}  # g 值：目前已知的起点到该顶点的最小代价
+    came_from: dict[Vertex, Vertex] = {}              # 父指针：用于回溯路径
+    start_estimate = heuristic_fn(positions[start], goal_position)
+    # 堆条目：(f = g + h, h, 插入序号, g, 顶点)
+    open_heap = [(start_estimate, start_estimate, next(insertion_order), 0.0, start)]
     expanded: list[Vertex] = []
     discovered: list[Vertex] = [start]
 
     while open_heap:
-        _, _, _, gc, cur = heapq.heappop(open_heap)
-        if gc > g[cur]:  # 过期条目
+        _, _, _, current_cost, current = heapq.heappop(open_heap)
+        if current_cost > cost_from_start[current]:  # 过期条目（惰性删除）
             continue
-        expanded.append(cur)
-        if cur == goal:
+        expanded.append(current)
+        if current == goal:
             break
-        for nb, w in graph.adj[cur].items():
-            ng = gc + w
-            if ng < g.get(nb, math.inf):
-                if nb not in g:
-                    discovered.append(nb)
-                g[nb] = ng
-                parent[nb] = cur
-                hn = h_func(pos[nb], goal_pos)
-                heapq.heappush(open_heap, (ng + hn, hn, next(counter), ng, nb))
-    elapsed = (time.perf_counter() - t0) * 1000
+        for neighbor, edge_weight in graph.adjacency[current].items():
+            new_cost = current_cost + edge_weight
+            if new_cost < cost_from_start.get(neighbor, math.inf):
+                if neighbor not in cost_from_start:
+                    discovered.append(neighbor)
+                cost_from_start[neighbor] = new_cost
+                came_from[neighbor] = current
+                neighbor_estimate = heuristic_fn(positions[neighbor], goal_position)
+                heapq.heappush(open_heap, (new_cost + neighbor_estimate, neighbor_estimate,
+                                           next(insertion_order), new_cost, neighbor))
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
 
     path = None
-    if goal in g:
+    if goal in cost_from_start:
         path = [goal]
         while path[-1] != start:
-            path.append(parent[path[-1]])
+            path.append(came_from[path[-1]])
         path.reverse()
-    algo = label or ("Dijkstra" if hname == "zero" else f"A* ({hname})")
-    return SearchResult(path=path, cost=g.get(goal, math.inf), expanded=expanded,
-                        discovered=discovered, algorithm=algo, heuristic=hname, elapsed_ms=elapsed)
+    algorithm_name = label or ("Dijkstra" if heuristic_label == "zero" else f"A* ({heuristic_label})")
+    return SearchResult(path=path, cost=cost_from_start.get(goal, math.inf), expanded=expanded,
+                        discovered=discovered, algorithm=algorithm_name, heuristic=heuristic_label,
+                        elapsed_ms=elapsed_ms)
 
 
 def dijkstra_graph(graph: Graph, start: Vertex | None = None, goal: Vertex | None = None) -> SearchResult:
+    """Dijkstra = 启发函数恒为 0 的 A*。"""
     return astar_graph(graph, start, goal, heuristic="zero", label="Dijkstra")

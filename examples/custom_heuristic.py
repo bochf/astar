@@ -19,19 +19,19 @@ from astar import astar_grid, maps, octile, register_heuristic
 
 
 @register_heuristic("tie_breaking_octile", "octile × (1 + 1e-3)：轻微放大以打破平局")
-def tie_breaking_octile(a, b):
+def tie_breaking_octile(current, goal):
     # 放大极小倍数：在大片等 f 值的区域里更偏向靠近目标的节点，扩展更少；
     # 代价至多比最优多 0.1%。
-    return octile(a, b) * (1 + 1e-3)
+    return octile(current, goal) * (1 + 1e-3)
 
 
-def manhattan_sq(a, b):
+def manhattan_sq(current, goal):
     """反例：平方曼哈顿距离严重高估，搜索很快但路径可能明显非最优。"""
-    return (abs(a[0] - b[0]) + abs(a[1] - b[1])) ** 2
+    return (abs(current[0] - goal[0]) + abs(current[1] - goal[1])) ** 2
 
 
 if __name__ == "__main__":
     grid = maps.random_obstacle_grid(seed=0)
-    for h in ["zero", "octile", tie_breaking_octile, manhattan_sq,
-              lambda a, b: math.dist(a, b) * 0.5]:  # lambda：任何 (a, b) -> float 都可以
-        print(astar_grid(grid, heuristic=h).summary())
+    for heuristic in ["zero", "octile", tie_breaking_octile, manhattan_sq,
+                      lambda current, goal: math.dist(current, goal) * 0.5]:  # 任何 (current, goal) -> float 都可以
+        print(astar_grid(grid, heuristic=heuristic).summary())

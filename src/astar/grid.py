@@ -1,6 +1,6 @@
 """基于 **二维矩阵** 的图与 A* 实现。
 
-地图是一个 ``numpy`` 二维数组 ``cost[row, col]``：
+地图是一个 ``numpy`` 二维数组 ``cell_costs[row, col]``：
 
 - 值为正数：进入该格子的代价（普通地面为 1，沼泽/山地可设更高）；
 - 值为 ``inf``（常量 :data:`WALL`）：障碍物，不可通行。
@@ -24,8 +24,9 @@ from .result import SearchResult
 Cell = tuple[int, int]
 WALL = math.inf
 
-_DIRS4 = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-_DIRS8 = _DIRS4 + [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+_ORTHOGONAL_STEPS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+_DIAGONAL_STEPS = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+_ALL_STEPS = _ORTHOGONAL_STEPS + _DIAGONAL_STEPS
 SQRT2 = math.sqrt(2)
 
 
@@ -34,21 +35,21 @@ class GridMap:
 
     Parameters
     ----------
-    cost:
+    cell_costs:
         二维数组，元素为进入该格的代价，``inf`` 表示墙。
     diagonal:
         是否允许 8 方向移动。对角步代价 = √2 × 目标格代价，且禁止“切角”
         （两个正交相邻格中任何一个是墙时不能斜穿）。
     """
 
-    def __init__(self, cost: np.ndarray, diagonal: bool = False,
+    def __init__(self, cell_costs: np.ndarray, diagonal: bool = False,
                  start: Cell | None = None, goal: Cell | None = None, name: str = "grid"):
-        cost = np.asarray(cost, dtype=float)
-        if cost.ndim != 2:
-            raise ValueError("cost 必须是二维矩阵")
-        if np.any(cost <= 0):
+        cell_costs = np.asarray(cell_costs, dtype=float)
+        if cell_costs.ndim != 2:
+            raise ValueError("cell_costs 必须是二维矩阵")
+        if np.any(cell_costs <= 0):
             raise ValueError("格子代价必须为正数（墙使用 inf）")
-        self.cost = cost
+        self.cell_costs = cell_costs
         self.diagonal = diagonal
         self.start = start
         self.goal = goal
@@ -62,56 +63,58 @@ class GridMap:
         ``.`` 或空格 = 代价 1，``#`` = 墙，``1``-``9`` = 对应代价，
         ``S`` = 起点，``G`` = 终点（二者代价均为 1）。
         """
-        lines = [ln for ln in text.strip("\n").splitlines()]
-        width = max(len(ln) for ln in lines)
-        cost = np.ones((len(lines), width))
+        lines = text.strip("\n").splitlines()
+        width = max(len(line) for line in lines)
+        cell_costs = np.ones((len(lines), width))
         start = goal = None
-        for r, line in enumerate(lines):
-            for c, ch in enumerate(line.ljust(width, ".")):
-                if ch == "#":
-                    cost[r, c] = WALL
-                elif ch.isdigit() and ch != "0":
-                    cost[r, c] = int(ch)
-                elif ch == "S":
-                    start = (r, c)
-                elif ch == "G":
-                    goal = (r, c)
-        return cls(cost, diagonal=diagonal, start=start, goal=goal, name=name)
+        for row, line in enumerate(lines):
+            for col, char in enumerate(line.ljust(width, ".")):
+                if char == "#":
+                    cell_costs[row, col] = WALL
+                elif char.isdigit() and char != "0":
+                    cell_costs[row, col] = int(char)
+                elif char == "S":
+                    start = (row, col)
+                elif char == "G":
+                    goal = (row, col)
+        return cls(cell_costs, diagonal=diagonal, start=start, goal=goal, name=name)
 
     # ------------------------------------------------------------------ 查询
     @property
     def shape(self) -> tuple[int, int]:
-        return self.cost.shape  # type: ignore[return-value]
+        return self.cell_costs.shape  # type: ignore[return-value]
 
     def in_bounds(self, cell: Cell) -> bool:
-        r, c = cell
-        return 0 <= r < self.cost.shape[0] and 0 <= c < self.cost.shape[1]
+        row, col = cell
+        return 0 <= row < self.cell_costs.shape[0] and 0 <= col < self.cell_costs.shape[1]
 
     def passable(self, cell: Cell) -> bool:
-        return self.in_bounds(cell) and math.isfinite(self.cost[cell])
+        return self.in_bounds(cell) and math.isfinite(self.cell_costs[cell])
 
     def neighbors(self, cell: Cell) -> Iterator[tuple[Cell, float]]:
-        """生成 (邻居, 边代价)。"""
-        r, c = cell
-        for dr, dc in (_DIRS8 if self.diagonal else _DIRS4):
-            nb = (r + dr, c + dc)
-            if not self.passable(nb):
+        """生成 (邻居格子, 移动代价)。"""
+        row, col = cell
+        for row_step, col_step in (_ALL_STEPS if self.diagonal else _ORTHOGONAL_STEPS):
+            neighbor = (row + row_step, col + col_step)
+            if not self.passable(neighbor):
                 continue
-            if dr and dc:  # 对角：禁止切角
-                if not (self.passable((r + dr, c)) and self.passable((r, c + dc))):
+            is_diagonal = row_step != 0 and col_step != 0
+            if is_diagonal:
+                # 禁止切角：斜向移动经过的两个正交格子都必须可通行
+                if not (self.passable((row + row_step, col)) and self.passable((row, col + col_step))):
                     continue
-                yield nb, SQRT2 * self.cost[nb]
+                yield neighbor, SQRT2 * float(self.cell_costs[neighbor])
             else:
-                yield nb, float(self.cost[nb])
+                yield neighbor, float(self.cell_costs[neighbor])
 
     def path_cost(self, path: list[Cell]) -> float:
-        total = 0.0
-        for a, b in itertools.pairwise(path):
-            step = dict(self.neighbors(a)).get(b)
-            if step is None:
-                raise ValueError(f"{a} -> {b} 不是合法移动")
-            total += step
-        return total
+        total_cost = 0.0
+        for current, following in itertools.pairwise(path):
+            step_cost = dict(self.neighbors(current)).get(following)
+            if step_cost is None:
+                raise ValueError(f"{current} -> {following} 不是合法移动")
+            total_cost += step_cost
+        return total_cost
 
     def default_heuristic(self) -> str:
         return "octile" if self.diagonal else "manhattan"
@@ -124,59 +127,69 @@ def astar_grid(grid: GridMap, start: Cell | None = None, goal: Cell | None = Non
     ``heuristic`` 为 ``"zero"`` 时即 Dijkstra。为保证启发函数可采纳，内置启发函数
     假定最小格子代价为 1；若地图最小代价小于 1，会自动乘以该最小值进行缩放。
 
-    同 f 值时优先 h 更小（更靠近目标）的节点，可显著减少开阔地带的扩展数。
+    同 f 值时优先 h 更小（更靠近目标）的节点。
     若启发函数不一致（例如自定义或加权），算法允许节点被重新打开，结果仍正确。
     """
     start = start if start is not None else grid.start
     goal = goal if goal is not None else grid.goal
     if start is None or goal is None:
         raise ValueError("需要指定起点和终点")
-    for p in (start, goal):
-        if not grid.passable(p):
-            raise ValueError(f"{p} 不可通行或越界")
+    for endpoint in (start, goal):
+        if not grid.passable(endpoint):
+            raise ValueError(f"{endpoint} 不可通行或越界")
 
-    h_func = get_heuristic(heuristic if heuristic is not None else grid.default_heuristic())
-    hname = heuristic_name(heuristic if heuristic is not None else grid.default_heuristic())
-    finite = grid.cost[np.isfinite(grid.cost)]
-    scale = min(1.0, float(finite.min()))
-    h = (lambda a: scale * h_func(a, goal)) if scale < 1 else (lambda a: h_func(a, goal))
+    heuristic_spec = heuristic if heuristic is not None else grid.default_heuristic()
+    heuristic_fn = get_heuristic(heuristic_spec)
+    heuristic_label = heuristic_name(heuristic_spec)
 
-    t0 = time.perf_counter()
-    counter = itertools.count()
-    g: dict[Cell, float] = {start: 0.0}
-    parent: dict[Cell, Cell] = {}
-    h0 = h(start)
-    open_heap: list[tuple[float, float, int, float, Cell]] = [(h0, h0, next(counter), 0.0, start)]
+    # 若存在代价 < 1 的格子，按最小代价缩放启发值，保证不高估
+    passable_costs = grid.cell_costs[np.isfinite(grid.cell_costs)]
+    heuristic_scale = min(1.0, float(passable_costs.min()))
+
+    def estimate_to_goal(cell: Cell) -> float:
+        return heuristic_scale * heuristic_fn(cell, goal)
+
+    start_time = time.perf_counter()
+    insertion_order = itertools.count()          # 堆中平局时先进先出，且避免比较节点本身
+    cost_from_start: dict[Cell, float] = {start: 0.0}   # g 值：目前已知的起点到该格的最小代价
+    came_from: dict[Cell, Cell] = {}             # 父指针：用于回溯路径
+    start_estimate = estimate_to_goal(start)
+    # 堆条目：(f = g + h, h, 插入序号, g, 格子)
+    open_heap: list[tuple[float, float, int, float, Cell]] = [
+        (start_estimate, start_estimate, next(insertion_order), 0.0, start)
+    ]
     expanded: list[Cell] = []
     discovered: list[Cell] = [start]
 
     while open_heap:
-        _, _, _, gc, cur = heapq.heappop(open_heap)
-        if gc > g[cur]:  # 过期条目（惰性删除）
+        _, _, _, current_cost, current = heapq.heappop(open_heap)
+        if current_cost > cost_from_start[current]:  # 过期条目（惰性删除）
             continue
-        expanded.append(cur)
-        if cur == goal:
+        expanded.append(current)
+        if current == goal:
             break
-        for nb, step in grid.neighbors(cur):
-            ng = gc + step
-            if ng < g.get(nb, math.inf):
-                if nb not in g:
-                    discovered.append(nb)
-                g[nb] = ng
-                parent[nb] = cur
-                hn = h(nb)
-                heapq.heappush(open_heap, (ng + hn, hn, next(counter), ng, nb))
-    elapsed = (time.perf_counter() - t0) * 1000
+        for neighbor, step_cost in grid.neighbors(current):
+            new_cost = current_cost + step_cost
+            if new_cost < cost_from_start.get(neighbor, math.inf):
+                if neighbor not in cost_from_start:
+                    discovered.append(neighbor)
+                cost_from_start[neighbor] = new_cost
+                came_from[neighbor] = current
+                neighbor_estimate = estimate_to_goal(neighbor)
+                heapq.heappush(open_heap, (new_cost + neighbor_estimate, neighbor_estimate,
+                                           next(insertion_order), new_cost, neighbor))
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
 
     path = None
-    if goal in g:
+    if goal in cost_from_start:
         path = [goal]
         while path[-1] != start:
-            path.append(parent[path[-1]])
+            path.append(came_from[path[-1]])
         path.reverse()
-    algo = label or ("Dijkstra" if hname == "zero" else f"A* ({hname})")
-    return SearchResult(path=path, cost=g.get(goal, math.inf), expanded=expanded,
-                        discovered=discovered, algorithm=algo, heuristic=hname, elapsed_ms=elapsed)
+    algorithm_name = label or ("Dijkstra" if heuristic_label == "zero" else f"A* ({heuristic_label})")
+    return SearchResult(path=path, cost=cost_from_start.get(goal, math.inf), expanded=expanded,
+                        discovered=discovered, algorithm=algorithm_name, heuristic=heuristic_label,
+                        elapsed_ms=elapsed_ms)
 
 
 def dijkstra_grid(grid: GridMap, start: Cell | None = None, goal: Cell | None = None) -> SearchResult[Cell]:
