@@ -1,4 +1,4 @@
-"""搜索结果数据结构，两种图实现共用。"""
+"""Search result data structure shared by both graph implementations."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ Node = TypeVar("Node", bound=Hashable)
 @dataclass
 class SearchResult(Generic[Node]):
     path: list[Node] | None
-    """从起点到终点的节点序列；不可达时为 None。"""
+    """Sequence of nodes from start to goal; None if unreachable."""
     cost: float
-    """路径总代价；不可达时为 inf。"""
+    """Total path cost; inf if unreachable."""
     expanded: list[Node] = field(default_factory=list)
-    """按顺序被弹出并扩展的节点（用于可视化动画）。"""
+    """Nodes popped and expanded, in order (used for visualization animations)."""
     discovered: list[Node] = field(default_factory=list)
-    """按顺序首次加入开放列表的节点。"""
+    """Nodes in the order they were first added to the open list."""
     algorithm: str = "A*"
     heuristic: str = ""
     elapsed_ms: float = 0.0

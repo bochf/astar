@@ -1,122 +1,122 @@
-# A* 寻路算法演示
+# A* Pathfinding Demo
 
-用两种图数据结构分别实现 A*，配有简单/复杂地图生成器、与 Dijkstra 的可视化对比、
-多种经典启发函数，以及自定义启发函数接口。
+A* implemented on two graph data structures, with simple/complex map generators, visual comparisons
+against Dijkstra, several classic heuristics, and an interface for custom heuristics.
 
-| 数据结构 | 模块 | 节点 | 边 |
+| Data structure | Module | Nodes | Edges |
 |---|---|---|---|
-| 二维矩阵 | [grid.py](src/astar/grid.py) `GridMap` + `astar_grid` | `(row, col)` | 由下标隐式给出（4/8 邻接），代价 = 目标格代价（对角 ×√2） |
-| 顶点/边 | [graph.py](src/astar/graph.py) `Graph` + `astar_graph` | 任意可哈希 id + `(x, y)` 坐标 | 邻接表显式存储，有向/无向，非负权重 |
+| 2D matrix | [grid.py](src/astar/grid.py) `GridMap` + `astar_grid` | `(row, col)` | Implicit from indices (4/8-connected); cost = target cell cost (diagonal ×√2) |
+| Vertex/edge | [graph.py](src/astar/graph.py) `Graph` + `astar_graph` | Any hashable id + `(x, y)` position | Stored explicitly in an adjacency list; directed/undirected; non-negative weights |
 
-Dijkstra 就是启发函数恒为 0 的 A*（`heuristic="zero"`，或用 `dijkstra_grid` / `dijkstra_graph`）。
+Dijkstra is simply A* with a heuristic that is always 0 (`heuristic="zero"`, or use `dijkstra_grid` / `dijkstra_graph`).
 
-## 效果演示
+## Demo
 
-![10 个顶点的小路网上，Dijkstra、A*（欧氏距离）、A*（曼哈顿距离）逐步扩展的对比动画](docs/images/graph_simple.gif)
+![Animated comparison of Dijkstra, A* (Euclidean) and A* (Manhattan) expanding step by step on a 10-vertex road network](docs/images/graph_simple.gif)
 
-从起点 A 到终点 J，三种算法每帧各扩展一个顶点：
+From start A to goal J, each of the three algorithms expands one vertex per frame:
 
-| 算法 | 扩展顶点数 | 路径代价 | 说明 |
+| Algorithm | Vertices expanded | Path cost | Notes |
 |---|---|---|---|
-| Dijkstra | 10 | 10.63 | 只看已走代价，连远离终点的 D、F 也会扩展 |
-| A*（欧氏距离） | 6 | 10.63 | 欧氏距离不会高估，路径仍然最优，扩展更少 |
-| A*（曼哈顿距离） | 5 | 11.39 | 在平面图上会高估，扩展最少，但路径比最优长 7.1% |
+| Dijkstra | 10 | 10.63 | Only looks at cost so far, so it even expands D and F, which lead away from the goal |
+| A* (Euclidean) | 6 | 10.63 | Euclidean distance never overestimates, so the path is still optimal with fewer expansions |
+| A* (Manhattan) | 5 | 11.39 | Overestimates on a planar graph: fewest expansions, but the path is 7.1% longer than optimal |
 
-图例：蓝色深浅表示扩展顺序（浅色先扩展），浅蓝圆圈表示仍在开放列表中的顶点，橙线是最终路径，灰色数字是边权。
+Legend: shades of blue show expansion order (lighter = expanded earlier), light-blue circles are vertices still in the open list, the orange line is the final path, and gray numbers are edge weights.
 
-## 快速开始
+## Quick start
 
 ```bash
 uv sync
-uv run astar demo                 # 运行全部演示，PNG/GIF 写入 output/（约 1 分钟；--no-anim 跳过 GIF 只要几秒）
-uv run astar heuristics           # 列出启发函数
+uv run astar demo                 # Run all demos; PNG/GIF files go to output/ (~1 minute; --no-anim skips GIFs and takes a few seconds)
+uv run astar heuristics           # List heuristics
 ```
 
-`demo` 会在终端打印每张地图上各算法的路径代价和扩展节点数，并自动校验：
-① 路径是合法移动且代价与报告值一致；② 可采纳启发函数得到的代价与 Dijkstra 相同。
+`demo` prints each algorithm's path cost and expanded-node count for every map, and automatically verifies that:
+① paths consist of legal moves and their cost matches the reported value; ② admissible heuristics yield the same cost as Dijkstra.
 
-生成的文件：
+Generated files:
 
-| 文件 | 内容 |
+| File | Contents |
 |---|---|
-| `grid_simple.png/gif` | 简单地图：15×25，起终点间有一道“匚”形墙 |
-| `grid_open.png/gif` | 空地：Dijkstra 扩展 1185 个格子，A* 只扩展路径上的 44 个 |
-| `grid_maze.png/gif` | 41×61 迷宫（带环路） |
-| `grid_random.png/gif` | 60×90 随机矩形障碍，8 邻接 |
-| `grid_terrain.png/gif` | 60×90 加权地形（代价 1–9），有山峰和只有两个渡口的河流 |
-| `graph_simple.png/gif` | 10 个顶点的小路网，标注了边权，方便手工核对；动画每帧扩展一个顶点 |
-| `graph_road.png/gif` | 800 个顶点的随机路网（中间有“湖泊”空洞） |
-| `benchmark.png` | 各启发函数在几张地图上的扩展节点数和路径代价对比 |
+| `grid_simple.png/gif` | Simple map: 15×25 with a bracket-shaped wall between start and goal |
+| `grid_open.png/gif` | Open field: Dijkstra expands 1185 cells, A* only the 44 on the path |
+| `grid_maze.png/gif` | 41×61 maze (with loops) |
+| `grid_random.png/gif` | 60×90 random rectangular obstacles, 8-connected |
+| `grid_terrain.png/gif` | 60×90 weighted terrain (cost 1–9) with peaks and a river that has only two crossings |
+| `graph_simple.png/gif` | 10-vertex road network with labeled edge weights, easy to check by hand; the animation expands one vertex per frame |
+| `graph_road.png/gif` | 800-vertex random road network (with "lake" holes in the middle) |
+| `benchmark.png` | Expanded nodes and path cost per heuristic across several maps |
 
-图例：蓝色深浅表示扩展顺序（浅色先扩展），浅蓝表示仍在开放列表中的节点，橙线是最终路径，S/G 是起点和终点。
-动画里所有算法每帧扩展相同数量的节点，可以直接看出 A* 搜索范围更集中。
+Legend: shades of blue show expansion order (lighter = expanded earlier), light blue marks nodes still in the open list, the orange line is the final path, and S/G are the start and goal.
+In the animations every algorithm expands the same number of nodes per frame, so you can see directly how much more focused A*'s search is.
 
-### 单独运行
+### Running individually
 
 ```bash
-# 矩阵地图：--map simple|open|maze|random|terrain|file，-H 可重复以并排对比
+# Matrix maps: --map simple|open|maze|random|terrain|file; repeat -H to compare side by side
 uv run astar grid --map maze -H zero -H manhattan -H manhattan*2 --show
 uv run astar grid --map terrain --seed 3 -H zero -H octile --animate --out output
-uv run astar grid --map file --file my_map.txt --diagonal --show   # ASCII：. 空地  # 墙  1-9 代价  S 起点  G 终点
+uv run astar grid --map file --file my_map.txt --diagonal --show   # ASCII: . open  # wall  1-9 cost  S start  G goal
 
-# 顶点/边图：--map simple|road
+# Vertex/edge graphs: --map simple|road
 uv run astar graph --map road --nodes 1500 -H zero -H euclidean --animate --out output
 ```
 
-不加 `--show` 也不加 `--out` 时只打印统计结果。
+Without `--show` or `--out`, only the statistics are printed.
 
-## 启发函数
+## Heuristics
 
-所有启发函数签名都是 `heuristic(current, goal) -> float`，`current`、`goal` 是坐标元组，矩阵和图共用。
+Every heuristic has the signature `heuristic(current, goal) -> float`, where `current` and `goal` are coordinate tuples; matrices and graphs share them.
 
-| 名称 | 公式 | 何时可采纳（保证最优） |
+| Name | Formula | When admissible (guarantees optimality) |
 |---|---|---|
-| `zero` | 0 | 总是（即 Dijkstra） |
-| `manhattan` | \|dx\|+\|dy\| | 4 邻接网格（是精确下界）；8 邻接或平面图上会高估 |
-| `euclidean` | √(dx²+dy²) | 总是，只要边权 ≥ 欧氏距离 |
-| `chebyshev` | max(\|dx\|,\|dy\|) | 总是（偏保守） |
-| `octile` | max+(√2−1)·min | 8 邻接、对角代价 √2 时的精确下界 |
-| `name*w` | w·h | w>1 时是 Weighted A*：扩展更少，代价 ≤ w × 最优 |
+| `zero` | 0 | Always (this is Dijkstra) |
+| `manhattan` | \|dx\|+\|dy\| | 4-connected grids (exact lower bound); overestimates on 8-connected grids or planar graphs |
+| `euclidean` | √(dx²+dy²) | Always, as long as edge weights ≥ Euclidean distance |
+| `chebyshev` | max(\|dx\|,\|dy\|) | Always (conservative) |
+| `octile` | max+(√2−1)·min | Exact lower bound for 8-connected grids with diagonal cost √2 |
+| `name*w` | w·h | For w>1 this is Weighted A*: fewer expansions, cost ≤ w × optimal |
 
-内置启发函数按最小格子代价为 1 设计；地图中有代价小于 1 的格子时，`astar_grid` 会自动按比例缩小启发值。
+The built-in heuristics assume a minimum cell cost of 1; if the map has cells cheaper than 1, `astar_grid` automatically scales the heuristic down proportionally.
 
-### 自定义启发函数
+### Custom heuristics
 
 ```python
 from astar import astar_grid, register_heuristic, maps
 
-# 方式 1：直接传可调用对象
+# Option 1: pass a callable directly
 astar_grid(grid, heuristic=lambda current, goal: max(abs(current[0]-goal[0]), abs(current[1]-goal[1])))
 
-# 方式 2：注册成名称，之后可以用字符串（包括命令行 -H）引用
-@register_heuristic("my_h", "说明文字")
+# Option 2: register it under a name, then refer to it by string (including -H on the command line)
+@register_heuristic("my_h", "description")
 def my_h(current, goal): ...
 ```
 
-命令行中用 `--plugin path/to/file.py`（文件里用 `@register_heuristic` 注册）或 `-H module:function` 引用自定义函数。
-完整示例见 [examples/custom_heuristic.py](examples/custom_heuristic.py)：
+On the command line, use `--plugin path/to/file.py` (registering with `@register_heuristic` inside the file) or `-H module:function` to refer to a custom function.
+See [examples/custom_heuristic.py](examples/custom_heuristic.py) for a complete example:
 
 ```bash
 uv run astar grid --map random --plugin examples/custom_heuristic.py -H zero -H tie_breaking_octile --show
 PYTHONPATH=examples uv run astar grid --map maze -H zero -H custom_heuristic:manhattan_sq --show
 ```
 
-启发函数不一致（例如加权或随机的启发函数）时，实现允许节点被重新打开，返回的路径仍然合法。
+When a heuristic is inconsistent (e.g. weighted or random), the implementation allows nodes to be reopened, so the returned path is still valid.
 
-## 实现要点
+## Implementation notes
 
-- 开放列表用二叉堆，条目为 `(f, h, 插入序号, g, 节点)`。f 相同时优先扩展 h 更小的节点，这在开阔区域能大幅减少扩展数。
-- 采用惰性删除：节点的 g 值被改进后直接压入新条目，弹出时如果条目里的 g 大于当前最优 g 就跳过。
-- 8 邻接时禁止切角：两个正交相邻格中有一个是墙，就不能斜穿过去。
-- `SearchResult` 记录 `path`、`cost`、扩展顺序 `expanded`、发现顺序 `discovered` 和耗时，可视化用的就是这些数据。
+- The open list is a binary heap with entries `(f, h, insertion order, g, node)`. Ties in f are broken in favor of smaller h, which greatly reduces expansions in open areas.
+- Lazy deletion: when a node's g value improves, a new entry is pushed; when popped, an entry whose g is larger than the current best g is skipped.
+- No corner cutting with 8-connectivity: if either of the two orthogonally adjacent cells is a wall, the diagonal move is not allowed.
+- `SearchResult` records `path`, `cost`, the expansion order `expanded`, the discovery order `discovered`, and the elapsed time; the visualizations are built from this data.
 
-## 测试
+## Tests
 
 ```bash
 uv run pytest
 ```
 
-测试把 A* 和独立实现的参考算法对比：矩阵地图用 Bellman-Ford，顶点/边图用 Floyd-Warshall。覆盖 4/8 邻接、加权地形、
-有向图和无向图、不可达、禁止切角、自定义/加权/不一致启发函数，并检查演示地图上 A* 的扩展数不超过 Dijkstra。
+The tests compare A* against independently implemented reference algorithms: Bellman-Ford for matrix maps and Floyd-Warshall for vertex/edge graphs. They cover 4/8-connectivity, weighted terrain,
+directed and undirected graphs, unreachable goals, corner cutting, and custom/weighted/inconsistent heuristics, and check that A* expands no more nodes than Dijkstra on the demo maps.
 
-> 如果系统 `PYTHONPATH` 里带有第三方 pytest 插件（例如 ROS），请用 `env -u PYTHONPATH uv run pytest`。
+> If your system `PYTHONPATH` includes third-party pytest plugins (e.g. ROS), run `env -u PYTHONPATH uv run pytest`.
